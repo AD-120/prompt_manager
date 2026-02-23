@@ -1,0 +1,8 @@
+
+{
+  "name": "Prompt Manager 1.1",
+  "description": "A minimalist, macOS-inspired prompt management system with category organization, image thumbnailing, and high-performance search. Includes an AI generator to export your setup into a standalone Python PyQt6 desktop application.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
