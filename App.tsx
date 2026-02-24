@@ -29,9 +29,7 @@ import {
   Cpu,
   Package,
   FileCode,
-  ArrowRight,
-  Terminal as TerminalIcon,
-  Apple
+  ArrowRight
 } from 'lucide-react';
 import { PromptEntry, Category, ViewMode, SortOption } from './types';
 import { resizeImage } from './components/ImageResizer';
@@ -81,9 +79,6 @@ const App: React.FC = () => {
   const [importData, setImportData] = useState<{ categories: Category[], prompts: PromptEntry[] } | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Parent Category selection for subfolder creation
-  const [addParentId, setAddParentId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     localStorage.setItem('pa_categories', JSON.stringify(categories));
@@ -211,7 +206,6 @@ const App: React.FC = () => {
 
     setShowImportModal(false);
     setImportData(null);
-    alert(`Import successful (${mode} mode)`);
   };
 
   // Drag and Drop Logic
@@ -291,7 +285,7 @@ const App: React.FC = () => {
     if (!prompt) return;
 
     if (prompt.categoryId === TRASH_CATEGORY_ID) {
-      if (confirm('Permanently delete this prompt? This action cannot be undone.')) {
+      if (confirm('Permanently delete this prompt?')) {
         setPrompts(prompts.filter(p => p.id !== id));
       }
     } else {
@@ -304,548 +298,461 @@ const App: React.FC = () => {
     setPrompts(prompts.map(p => p.id === id ? { ...p, categoryId: targetCategory } : p));
   };
 
-  // Fixed handleEmptyTrash by adding closing brace and confirmation logic
   const handleEmptyTrash = () => {
-    if (confirm('Are you sure you want to permanently delete all items in the trash?')) {
+    if (confirm('Empty trash permanently?')) {
       setPrompts(prompts.filter(p => p.categoryId !== TRASH_CATEGORY_ID));
     }
   };
 
-  const handleCopyPrompt = (id: string, text: string) => {
+  const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const thumbnail = await resizeImage(file);
+      setNewPrompt(prev => ({ ...prev, image: thumbnail }));
+    }
   };
 
   const handleGeneratePython = async () => {
     setIsGenerating(true);
     setViewMode(ViewMode.PYTHON_EXPORT);
     try {
-      const code = await generatePythonScript(categories, prompts);
-      setPythonCode(code || '');
+      const code = await generatePythonScript(categories, prompts.filter(p => p.categoryId !== TRASH_CATEGORY_ID));
+      setPythonCode(code || '# No code generated');
     } catch (error) {
-      alert("Failed to generate Python code. Check console for details.");
+      setPythonCode('# Error generating script');
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const base64 = await resizeImage(file);
-      setNewPrompt({ ...newPrompt, image: base64 });
-    }
+  const downloadPythonFile = () => {
+    const cleanCode = pythonCode.replace(/```python|```/g, '').trim();
+    const blob = new Blob([cleanCode], { type: 'text/x-python' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'prompt_manager.py';
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
-  // Effect to handle sub-folder creation when addParentId changes
-  useEffect(() => {
-    if (addParentId) {
-      handleAddCategory(addParentId);
-      setAddParentId(undefined);
-    }
-  }, [addParentId]);
-
-  // Render categories recursively
-  const renderCategoryItem = (cat: Category, depth: number = 0) => {
-    const hasChildren = categories.some(c => c.parentId === cat.id);
+  // Sidebar Category Renderer
+  const renderCategory = (cat: Category, level: number = 0) => {
     const isExpanded = expandedCategories.has(cat.id);
-    const isActive = activeCategoryId === cat.id;
+    const children = categories.filter(c => c.parentId === cat.id);
+    const isPink = children.length > 0;
+    const isActive = activeCategoryId === cat.id && viewMode === ViewMode.MANAGE;
 
     return (
-      <div key={cat.id} className="select-none">
-        <div 
-          className={`group flex items-center px-3 py-2 text-sm font-medium rounded-lg cursor-pointer transition-colors ${
-            isActive ? 'bg-pink-100 text-pink-700' : 'text-gray-600 hover:bg-gray-100'
-          } ${dragOverCategoryId === cat.id ? 'ring-2 ring-pink-400' : ''}`}
-          style={{ paddingLeft: `${depth * 16 + 12}px` }}
-          onClick={() => setActiveCategoryId(cat.id)}
+      <div key={cat.id}>
+        <div
           onDragOver={(e) => handleDragOver(e, cat.id)}
           onDragLeave={() => setDragOverCategoryId(null)}
           onDrop={(e) => handleDrop(e, cat.id)}
+          className={`group relative w-full flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg transition-all cursor-default ${
+            dragOverCategoryId === cat.id ? 'ring-2 ring-blue-400 ring-inset bg-blue-50 dark:bg-blue-900/20' : ''
+          } ${
+            isActive
+            ? 'bg-blue-600 text-white shadow-md' 
+            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#37373d]'
+          }`}
+          style={{ paddingLeft: `${(level * 16) + 12}px` }}
         >
-          {hasChildren ? (
-            <button onClick={(e) => toggleExpand(cat.id, e)} className="p-1 hover:bg-white/50 rounded mr-1">
+          {children.length > 0 ? (
+            <button onClick={(e) => toggleExpand(cat.id, e)} className="p-0.5 rounded hover:bg-black/10 transition-colors">
               {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
-          ) : <Folder size={14} className="mr-2" />}
-          
-          {editingCategoryId === cat.id ? (
-            <input
-              autoFocus
-              className="bg-white border border-gray-300 rounded px-1 w-full focus:outline-none focus:ring-1 focus:ring-pink-500"
-              value={editCategoryName}
-              onChange={e => setEditCategoryName(e.target.value)}
-              onBlur={() => handleRenameCategory(cat.id)}
-              onKeyDown={e => e.key === 'Enter' && handleRenameCategory(cat.id)}
-            />
           ) : (
-            <span className="flex-1 truncate">{cat.name}</span>
+            <div className="w-[18px]" />
           )}
 
-          <div className="hidden group-hover:flex items-center gap-1 ml-2">
-            <button onClick={(e) => { e.stopPropagation(); setAddParentId(cat.id); }} title="Add sub-folder">
-              <Plus size={14} />
+          <button
+            onClick={() => {
+              setActiveCategoryId(cat.id);
+              setViewMode(ViewMode.MANAGE);
+            }}
+            className="flex-1 flex items-center gap-2 truncate text-left font-medium"
+          >
+            <Folder 
+              size={16} 
+              className={isPink && !isActive ? "text-pink-500 fill-pink-500/10" : ""} 
+            />
+            {editingCategoryId === cat.id ? (
+              <input
+                autoFocus
+                className="bg-white/10 text-white rounded px-1 outline-none w-full"
+                value={editCategoryName}
+                onChange={(e) => setEditCategoryName(e.target.value)}
+                onBlur={() => handleRenameCategory(cat.id)}
+                onKeyDown={(e) => e.key === 'Enter' && handleRenameCategory(cat.id)}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className="truncate">{cat.name}</span>
+            )}
+          </button>
+
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={(e) => { e.stopPropagation(); handleAddCategory(cat.id); }} className="p-1 rounded hover:bg-black/10 text-current">
+              <FolderPlus size={12} />
             </button>
-            <button onClick={(e) => { e.stopPropagation(); setEditingCategoryId(cat.id); setEditCategoryName(cat.name); }} title="Rename">
+            <button onClick={(e) => { e.stopPropagation(); setEditingCategoryId(cat.id); setEditCategoryName(cat.name); }} className="p-1 rounded hover:bg-black/10 text-current">
               <Edit2 size={12} />
             </button>
-            <button onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.id); }} title="Delete">
-              <Trash2 size={12} className="text-red-400" />
+            <button onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.id); }} className="p-1 rounded hover:bg-black/10 text-current">
+              <Trash2 size={12} />
             </button>
           </div>
         </div>
-        {hasChildren && isExpanded && (
-          <div className="mt-1">
-            {categories.filter(c => c.parentId === cat.id).map(c => renderCategoryItem(c, depth + 1))}
-          </div>
-        )}
+        {isExpanded && children.map(child => renderCategory(child, level + 1))}
       </div>
     );
   };
 
+  const trashCount = prompts.filter(p => p.categoryId === TRASH_CATEGORY_ID).length;
+
   return (
-    <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
+    <div className="flex h-full bg-white dark:bg-[#1e1e1e] overflow-hidden text-gray-900 dark:text-gray-100">
+      <input type="file" ref={fileInputRef} onChange={handleImportFileSelect} accept=".json" className="hidden" />
+
       {/* Sidebar */}
-      <aside className="w-72 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-            <Layout className="text-pink-500" /> PromptArchive
-          </h1>
-          <button 
-            onClick={() => handleAddCategory()}
-            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors"
-          >
-            <FolderPlus size={20} />
-          </button>
+      <aside className="w-64 border-r border-gray-200 dark:border-gray-800 flex flex-col bg-gray-50 dark:bg-[#252526]">
+        <div className="p-4 flex items-center gap-3 border-b border-gray-200 dark:border-gray-800">
+          <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg">
+             <Layout className="text-white" size={20} />
+          </div>
+          <div>
+            <span className="block font-bold text-sm text-gray-800 dark:text-gray-100">Prompt Manager</span>
+            <span className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 uppercase tracking-widest font-mono">v1.1</span>
+          </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-          <div 
-            className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg cursor-pointer mb-2 ${
-              activeCategoryId === ALL_CATEGORY_ID ? 'bg-pink-100 text-pink-700' : 'text-gray-600 hover:bg-gray-100'
+        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+          <button
+            onClick={() => { setActiveCategoryId(ALL_CATEGORY_ID); setViewMode(ViewMode.MANAGE); }}
+            className={`w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-all mb-1 ${
+              activeCategoryId === ALL_CATEGORY_ID && viewMode === ViewMode.MANAGE
+              ? 'bg-blue-600 text-white shadow-md' 
+              : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#37373d]'
             }`}
-            onClick={() => setActiveCategoryId(ALL_CATEGORY_ID)}
           >
-            <Layers size={18} className="mr-3" /> All Prompts
+            <Layers size={16} />
+            <span className="font-semibold">All Prompts</span>
+            <span className="ml-auto text-[10px] bg-black/10 dark:bg-white/10 px-1.5 py-0.5 rounded-full">
+              {prompts.filter(p => p.categoryId !== TRASH_CATEGORY_ID).length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => { setActiveCategoryId(TRASH_CATEGORY_ID); setViewMode(ViewMode.MANAGE); }}
+            className={`w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-all mb-4 ${
+              activeCategoryId === TRASH_CATEGORY_ID && viewMode === ViewMode.MANAGE
+              ? 'bg-red-600 text-white shadow-md' 
+              : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#37373d]'
+            }`}
+          >
+            <Trash size={16} />
+            <span className="font-semibold">Trash</span>
+            <span className="ml-auto text-[10px] bg-black/10 dark:bg-white/10 px-1.5 py-0.5 rounded-full font-bold">
+              {trashCount}
+            </span>
+          </button>
+
+          <div className="flex items-center justify-between px-3 mb-2">
+            <div className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Collections</div>
+            <button onClick={() => handleAddCategory()} className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-blue-500 transition-colors">
+              <Plus size={14} />
+            </button>
+          </div>
+          
+          <div className="space-y-0.5">
+            {categories.filter(c => !c.parentId).map(cat => renderCategory(cat))}
           </div>
 
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-3 mb-2 mt-6">Collections</div>
-          {categories.filter(c => !c.parentId).map(c => renderCategoryItem(c))}
+          <div className="pt-6">
+            <div className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest px-3 mb-2">Advanced Tools</div>
+            <div className="space-y-1 px-1">
+              <button
+                onClick={handleGeneratePython}
+                className={`w-full flex items-center gap-3 px-3 py-2 text-xs rounded-lg transition-all ${
+                  viewMode === ViewMode.PYTHON_EXPORT 
+                  ? 'bg-purple-600 text-white shadow-md' 
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#37373d]'
+                }`}
+              >
+                <Monitor size={14} />
+                <span>Export as macOS App</span>
+              </button>
+              
+              <button onClick={handleExportBackup} className="w-full flex items-center gap-3 px-3 py-2 text-xs rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#37373d]">
+                <Download size={14} />
+                <span>Backup JSON</span>
+              </button>
 
-          <div className="pt-8">
-            <div 
-              className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg cursor-pointer ${
-                activeCategoryId === TRASH_CATEGORY_ID ? 'bg-red-50 text-red-600' : 'text-gray-500 hover:bg-red-50 hover:text-red-600'
-              }`}
-              onClick={() => setActiveCategoryId(TRASH_CATEGORY_ID)}
-            >
-              <Trash2 size={18} className="mr-3" /> Trash
+              <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center gap-3 px-3 py-2 text-xs rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#37373d]">
+                <Upload size={14} />
+                <span>Restore JSON</span>
+              </button>
             </div>
           </div>
         </nav>
 
-        <div className="p-4 border-t border-gray-100 space-y-2">
-          <button 
-            onClick={handleExportBackup}
-            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg"
-          >
-            <Download size={16} /> Export JSON
+        <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-[#252526]">
+          <button onClick={() => document.documentElement.classList.toggle('dark')} className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-[#37373d]">
+            <Moon size={16} className="hidden dark:block" />
+            <Sun size={16} className="dark:hidden" />
           </button>
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg"
-          >
-            <Upload size={16} /> Import JSON
-          </button>
-          <input ref={fileInputRef} type="file" className="hidden" accept=".json" onChange={handleImportFileSelect} />
+          <div className="text-[10px] opacity-40 font-mono tracking-tighter uppercase">v1.1 macOS Pro</div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col relative overflow-hidden bg-white">
-        {/* Header */}
-        <header className="h-16 border-b border-gray-100 px-6 flex items-center justify-between bg-white z-10">
-          <div className="flex-1 max-w-xl relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <input 
-              type="text" 
-              placeholder="Search prompts..." 
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 border-transparent focus:bg-white focus:border-pink-300 rounded-xl text-sm transition-all focus:ring-0"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
-          </div>
-
-          <div className="flex items-center gap-3">
+      <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-[#1e1e1e]">
+        <header className="h-14 border-b border-gray-200 dark:border-gray-800 flex items-center px-6 justify-between bg-white dark:bg-[#1e1e1e]">
+          <div className="flex items-center gap-4 flex-1">
+            <div className="relative w-full max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <input
+                type="text"
+                placeholder="Search prompts..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-1.5 bg-gray-100 dark:bg-[#2a2d2e] border-none rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+              />
+            </div>
             <select 
-              className="text-sm bg-gray-50 border-none rounded-lg py-2 pl-3 pr-8 focus:ring-0 cursor-pointer hover:bg-gray-100"
+              className="bg-gray-100 dark:bg-[#2a2d2e] border-none text-xs rounded-md px-2 py-1.5 outline-none cursor-pointer text-gray-600 dark:text-gray-300"
               value={sortOption}
-              onChange={e => setSortOption(e.target.value as SortOption)}
+              onChange={(e) => setSortOption(e.target.value as SortOption)}
             >
-              <option value={SortOption.NEWEST}>Newest first</option>
-              <option value={SortOption.OLDEST}>Oldest first</option>
+              <option value={SortOption.NEWEST}>Newest</option>
+              <option value={SortOption.OLDEST}>Oldest</option>
               <option value={SortOption.TITLE_ASC}>A-Z</option>
               <option value={SortOption.TITLE_DESC}>Z-A</option>
             </select>
-            
-            <button 
-              onClick={handleGeneratePython}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-medium hover:bg-gray-800 transition-all shadow-sm active:scale-95"
-            >
-              <Terminal size={18} /> Export as Desktop App
-            </button>
-
-            <button 
-              onClick={handleOpenAddModal}
-              className="flex items-center gap-2 px-4 py-2 bg-pink-500 text-white rounded-xl text-sm font-medium hover:bg-pink-600 transition-all shadow-md active:scale-95"
-            >
-              <Plus size={18} /> New Prompt
-            </button>
+          </div>
+          <div className="flex items-center gap-3">
+             {activeCategoryId === TRASH_CATEGORY_ID && trashCount > 0 && (
+               <button onClick={handleEmptyTrash} className="flex items-center gap-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 px-3 py-1.5 rounded-md text-sm font-medium">
+                 <Trash2 size={16} />
+                 Empty Trash
+               </button>
+             )}
+             <button onClick={handleOpenAddModal} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md text-sm font-medium shadow-md">
+              <Plus size={16} />
+              New Prompt
+             </button>
           </div>
         </header>
 
-        {/* Prompt Grid */}
-        <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50">
-          {activeCategoryId === TRASH_CATEGORY_ID && filteredAndSortedPrompts.length > 0 && (
-            <div className="mb-6 flex justify-between items-center bg-red-50 p-4 rounded-xl border border-red-100">
-              <span className="text-sm text-red-700 font-medium flex items-center gap-2">
-                <AlertCircle size={16} /> Items in trash are deleted permanently when you empty it.
-              </span>
-              <button 
-                onClick={handleEmptyTrash}
-                className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 font-bold uppercase tracking-wider"
-              >
-                Empty Trash Now
-              </button>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredAndSortedPrompts.map(prompt => (
-              <div 
-                key={prompt.id}
-                draggable
-                onDragStart={(e) => handleDragStart(e, prompt.id)}
-                className="group bg-white rounded-2xl border border-gray-200 p-5 hover:shadow-xl hover:border-pink-200 transition-all cursor-move flex flex-col h-full"
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="font-bold text-gray-800 line-clamp-1">{prompt.title}</h3>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {prompt.categoryId === TRASH_CATEGORY_ID ? (
-                      <button 
-                        onClick={() => handleRestorePrompt(prompt.id)}
-                        className="p-1.5 hover:bg-green-50 text-green-600 rounded-lg"
-                        title="Restore"
-                      >
-                        <RefreshCcw size={16} />
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={() => handleCopyPrompt(prompt.id, prompt.content)}
-                        className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg"
-                        title="Copy text"
-                      >
-                        {copiedId === prompt.id ? <Check size={16} /> : <Copy size={16} />}
-                      </button>
-                    )}
-                    <button 
-                      onClick={() => handleDeletePrompt(prompt.id)}
-                      className="p-1.5 hover:bg-red-50 text-red-500 rounded-lg"
-                      title={prompt.categoryId === TRASH_CATEGORY_ID ? "Delete Permanently" : "Move to Trash"}
-                    >
-                      <Trash2 size={16} />
-                    </button>
+        <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+          {viewMode === ViewMode.MANAGE ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {filteredAndSortedPrompts.map(prompt => (
+                <div 
+                  key={prompt.id} 
+                  draggable={prompt.categoryId !== TRASH_CATEGORY_ID}
+                  onDragStart={(e) => handleDragStart(e, prompt.id)}
+                  className={`group bg-white dark:bg-[#2d2d2d] rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-all flex flex-col ${
+                    prompt.categoryId === TRASH_CATEGORY_ID ? 'opacity-70' : 'cursor-grab active:cursor-grabbing'
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate flex-1">{prompt.title}</h3>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {prompt.categoryId === TRASH_CATEGORY_ID ? (
+                        <button onClick={() => handleRestorePrompt(prompt.id)} className="p-1.5 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500"><RefreshCcw size={14} /></button>
+                      ) : (
+                        <button onClick={() => handleCopy(prompt.content, prompt.id)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-[#37373d] text-gray-500">
+                          {copiedId === prompt.id ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                        </button>
+                      )}
+                      <button onClick={() => handleDeletePrompt(prompt.id)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-500 hover:text-red-500"><Trash2 size={14} /></button>
+                    </div>
                   </div>
-                </div>
+                  
+                  {prompt.image && (
+                    <div className="mb-3 rounded-lg overflow-hidden h-32 bg-gray-100 dark:bg-[#1e1e1e] border dark:border-gray-800">
+                      <img src={prompt.image} alt="" className="w-full h-full object-cover" />
+                    </div>
+                  )}
 
-                {prompt.image && (
-                  <div className="mb-4 rounded-lg overflow-hidden h-32 bg-gray-100">
-                    <img src={prompt.image} alt="" className="w-full h-full object-cover" />
-                  </div>
-                )}
-                
-                <p className="text-sm text-gray-600 line-clamp-4 flex-1 mb-4 italic leading-relaxed">
-                  "{prompt.content}"
-                </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-4 whitespace-pre-wrap leading-relaxed flex-1">
+                    {prompt.content}
+                  </p>
 
-                <div className="flex items-center justify-between pt-4 border-t border-gray-50 mt-auto">
-                  <span className="text-[10px] text-gray-400 font-medium">
-                    {new Date(prompt.createdAt).toLocaleDateString()}
-                  </span>
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded-md">
-                    <Folder size={10} className="text-gray-400" />
-                    <span className="text-[10px] text-gray-500 font-bold max-w-[80px] truncate">
-                      {categories.find(c => c.id === prompt.categoryId)?.name || 'Uncategorized'}
+                  <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center text-[10px] text-gray-400 uppercase tracking-tighter">
+                    <div className="flex items-center gap-1">
+                      <Calendar size={10} />
+                      <span>{new Date(prompt.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 font-bold">
+                      {categories.find(c => c.id === prompt.categoryId)?.name || 'Default'}
                     </span>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-
-          {filteredAndSortedPrompts.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20">
-              <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-                <Search size={40} className="text-gray-200" />
-              </div>
-              <p className="text-lg font-medium">No prompts found</p>
-              <p className="text-sm">Try adjusting your search or selection</p>
-            </div>
-          )}
-        </div>
-
-        {/* Add Modal */}
-        {isAdding && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-              <div className="p-8">
-                <div className="flex justify-between items-center mb-8">
-                  <h2 className="text-2xl font-bold text-gray-900">Create New Prompt</h2>
-                  <button onClick={() => setIsAdding(false)} className="p-2 hover:bg-gray-100 rounded-full">
-                    <X size={24} className="text-gray-400" />
-                  </button>
-                </div>
-
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Title</label>
-                    <input 
-                      autoFocus
-                      type="text" 
-                      placeholder="e.g. Creative Writer Persona"
-                      className="w-full px-4 py-3 bg-gray-50 border-gray-200 rounded-xl focus:ring-2 focus:ring-pink-500 focus:bg-white transition-all outline-none"
-                      value={newPrompt.title}
-                      onChange={e => setNewPrompt({ ...newPrompt, title: e.target.value })}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Collection</label>
-                    <select 
-                      className="w-full px-4 py-3 bg-gray-50 border-gray-200 rounded-xl focus:ring-2 focus:ring-pink-500 focus:bg-white transition-all outline-none appearance-none"
-                      value={newPrompt.categoryId}
-                      onChange={e => setNewPrompt({ ...newPrompt, categoryId: e.target.value })}
-                    >
-                      {categories.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Prompt Content</label>
-                    <textarea 
-                      rows={6}
-                      placeholder="Type your prompt here..."
-                      className="w-full px-4 py-3 bg-gray-50 border-gray-200 rounded-xl focus:ring-2 focus:ring-pink-500 focus:bg-white transition-all outline-none resize-none"
-                      value={newPrompt.content}
-                      onChange={e => setNewPrompt({ ...newPrompt, content: e.target.value })}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Thumbnail (Optional)</label>
-                    <div className="flex items-center gap-4">
-                      <button 
-                        onClick={() => document.getElementById('imageUpload')?.click()}
-                        className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-200 rounded-xl hover:border-pink-300 hover:bg-pink-50 transition-all group"
-                      >
-                        <ImageIcon size={20} className="text-gray-400 group-hover:text-pink-500" />
-                        <span className="text-sm font-medium text-gray-500 group-hover:text-pink-600">Upload Image</span>
-                      </button>
-                      {newPrompt.image && (
-                        <div className="relative w-12 h-12 rounded-lg overflow-hidden shadow-sm ring-2 ring-pink-500 ring-offset-2">
-                          <img src={newPrompt.image} className="w-full h-full object-cover" alt="" />
-                          <button 
-                            onClick={() => setNewPrompt({...newPrompt, image: ''})}
-                            className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-                          >
-                            <X size={12} className="text-white" />
-                          </button>
-                        </div>
-                      )}
-                      <input id="imageUpload" type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 px-8 py-6 flex justify-end gap-3 border-t border-gray-100">
-                <button 
-                  onClick={() => setIsAdding(false)}
-                  className="px-6 py-2.5 text-sm font-semibold text-gray-600 hover:text-gray-900 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleAddPrompt}
-                  disabled={!newPrompt.title || !newPrompt.content}
-                  className="px-8 py-2.5 bg-pink-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-pink-200 hover:bg-pink-600 active:scale-95 disabled:opacity-50 disabled:shadow-none transition-all"
-                >
-                  Save Prompt
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Python Export Modal/View */}
-        {viewMode === ViewMode.PYTHON_EXPORT && (
-          <div className="absolute inset-0 z-50 bg-white flex flex-col animate-in slide-in-from-right duration-300">
-            <div className="h-16 border-b border-gray-100 px-6 flex items-center justify-between bg-white">
-              <div className="flex items-center gap-4">
-                <button onClick={() => setViewMode(ViewMode.MANAGE)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                  <X size={24} />
-                </button>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center text-white">
-                    <Terminal size={20} />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-bold">Desktop App Generator</h2>
-                    <p className="text-xs text-gray-500">Creating PyQt6 application with Gemini Pro</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-3">
-                <button 
-                  onClick={() => handleCopyPrompt('py', pythonCode)}
-                  disabled={!pythonCode}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition-all"
-                >
-                  {copiedId === 'py' ? <Check size={18} /> : <Copy size={18} />}
-                  Copy Code
-                </button>
-                <button 
-                  onClick={() => {
-                    const blob = new Blob([pythonCode], { type: 'text/plain' });
-                    const url = URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = 'prompt_manager.py';
-                    link.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                  disabled={!pythonCode}
-                  className="flex items-center gap-2 px-4 py-2 bg-pink-500 text-white rounded-xl text-sm font-medium hover:bg-pink-600 transition-all shadow-md"
-                >
-                  <Download size={18} /> Download .py
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 p-6 bg-gray-900 overflow-hidden flex flex-col">
-              {isGenerating ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-white space-y-6">
-                  <div className="relative">
-                    <div className="w-24 h-24 border-4 border-pink-500/20 rounded-full animate-pulse"></div>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <RefreshCcw className="animate-spin text-pink-500" size={40} />
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <h3 className="text-xl font-bold mb-2">Gemini is writing your code...</h3>
-                    <p className="text-gray-400 text-sm max-w-sm">Designing macOS Sonoma interface, setting up SQLite integration, and embedding your initial data.</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex-1 bg-black/30 rounded-2xl border border-white/10 overflow-hidden flex flex-col shadow-2xl">
-                  <div className="bg-white/5 px-4 py-2 flex items-center gap-2 border-b border-white/5">
-                    <div className="flex gap-1.5">
-                      <div className="w-3 h-3 rounded-full bg-red-500/50"></div>
-                      <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
-                      <div className="w-3 h-3 rounded-full bg-green-500/50"></div>
-                    </div>
-                    <span className="text-xs text-gray-500 font-mono ml-4 uppercase tracking-widest">prompt_manager.py</span>
-                  </div>
-                  <pre className="flex-1 overflow-auto p-6 text-pink-300 font-mono text-sm leading-relaxed scrollbar-thin scrollbar-thumb-white/10">
-                    {pythonCode || "# No code generated yet."}
-                  </pre>
+              ))}
+              {filteredAndSortedPrompts.length === 0 && (
+                <div className="col-span-full py-20 flex flex-col items-center justify-center text-gray-400 gap-4">
+                  <Layout size={48} className="opacity-10" />
+                  <p className="text-sm font-medium">No prompts to display.</p>
                 </div>
               )}
             </div>
+          ) : (
+            <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white p-10 rounded-3xl shadow-xl flex items-center justify-between">
+                <div>
+                  <h2 className="text-3xl font-bold mb-3">macOS PyQt6 Exporter</h2>
+                  <p className="text-blue-100 text-lg opacity-80">Generate a native desktop application from your current database.</p>
+                </div>
+                <Terminal size={64} className="opacity-30" />
+              </div>
 
-            <div className="bg-gray-50 p-6 border-t border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="flex gap-4">
-                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600 flex-shrink-0">
-                  <Cpu size={20} />
+              {isGenerating ? (
+                <div className="flex flex-col items-center justify-center py-24 gap-6">
+                  <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-gray-500 font-medium text-lg">Gemini is architecting your Python application...</p>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-gray-800">macOS Native</h4>
-                  <p className="text-xs text-gray-500">Optimized for Apple Silicon & Intel Macs using PyQt6.</p>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="lg:col-span-2 space-y-4">
+                    <div className="bg-[#1e1e1e] rounded-2xl border border-gray-800 overflow-hidden shadow-2xl">
+                      <div className="px-5 py-3 bg-[#2d2d2d] border-b border-gray-800 flex items-center justify-between">
+                        <span className="text-xs text-gray-400 font-mono font-bold tracking-tight">prompt_manager.py</span>
+                        <div className="flex items-center gap-4">
+                          <button onClick={downloadPythonFile} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md flex items-center gap-2 font-bold transition-all shadow-md">
+                            <Download size={14} /> Download .py
+                          </button>
+                          <button onClick={() => handleCopy(pythonCode, 'python')} className="text-xs text-gray-400 hover:text-white flex items-center gap-1 font-bold">
+                            {copiedId === 'python' ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                            {copiedId === 'python' ? 'Copied' : 'Copy Code'}
+                          </button>
+                        </div>
+                      </div>
+                      <pre className="p-8 text-sm font-mono text-blue-300 overflow-x-auto selection:bg-blue-500/30 h-[500px] leading-relaxed">
+                        <code>{pythonCode.replace(/```python|```/g, '').trim()}</code>
+                      </pre>
+                    </div>
+                  </div>
+                  <div className="space-y-6">
+                    <div className="bg-white dark:bg-[#252526] p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-xl">
+                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><ArrowRight size={20} className="text-blue-500" /> Mac Setup</h3>
+                        <ol className="space-y-4">
+                            <li className="flex gap-3">
+                                <span className="w-6 h-6 rounded-full bg-blue-500/10 text-blue-500 text-xs flex items-center justify-center flex-shrink-0 font-bold">1</span>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">Download the <strong>.py</strong> file.</p>
+                            </li>
+                            <li className="flex gap-3">
+                                <span className="w-6 h-6 rounded-full bg-blue-500/10 text-blue-500 text-xs flex items-center justify-center flex-shrink-0 font-bold">2</span>
+                                <div>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Install dependencies:</p>
+                                    <code className="block bg-gray-100 dark:bg-[#1e1e1e] p-2 rounded text-[11px] text-pink-500 border border-gray-200 dark:border-gray-700">pip install PyQt6 Pillow</code>
+                                </div>
+                            </li>
+                            <li className="flex gap-3">
+                                <span className="w-6 h-6 rounded-full bg-blue-500/10 text-blue-500 text-xs flex items-center justify-center flex-shrink-0 font-bold">3</span>
+                                <div>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Run the application:</p>
+                                    <code className="block bg-gray-100 dark:bg-[#1e1e1e] p-2 rounded text-[11px] text-blue-500 border border-gray-200 dark:border-gray-700">python3 prompt_manager.py</code>
+                                </div>
+                            </li>
+                        </ol>
+                    </div>
+                    <div className="bg-blue-600 text-white p-6 rounded-2xl shadow-xl">
+                      <Package size={32} className="mb-4 opacity-50" />
+                      <h4 className="font-bold mb-2">Standalone DB</h4>
+                      <p className="text-xs opacity-80 leading-relaxed">The script automatically sets up a local <strong>prompts.db</strong> file on your Mac for full data persistence.</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-4">
-                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center text-green-600 flex-shrink-0">
-                  <Package size={20} />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-gray-800">Self-Contained</h4>
-                  <p className="text-xs text-gray-500">Includes SQLite DB setup and all your current prompts.</p>
-                </div>
-              </div>
-              <div className="flex gap-4">
-                <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center text-purple-600 flex-shrink-0">
-                  <Apple size={20} />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-gray-800">Sonoma Design</h4>
-                  <p className="text-xs text-gray-500">Modern QSS theme matching latest macOS visual language.</p>
-                </div>
-              </div>
+              )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
+      </main>
 
-        {/* Import Modal */}
-        {showImportModal && importData && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 overflow-hidden">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-12 h-12 bg-pink-100 rounded-2xl flex items-center justify-center text-pink-600">
-                  <RefreshCcw size={24} />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold">Import Backup</h2>
-                  <p className="text-sm text-gray-500">Found {importData.prompts.length} prompts & {importData.categories.length} folders.</p>
-                </div>
-              </div>
-
-              <div className="space-y-4 mb-8">
-                <button 
-                  onClick={() => finalizeImport('merge')}
-                  className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-left hover:border-pink-300 transition-all flex items-center justify-between group"
-                >
-                  <div>
-                    <h3 className="font-bold text-gray-800">Merge with existing</h3>
-                    <p className="text-xs text-gray-500 mt-1">Keep current data and add new items from file.</p>
-                  </div>
-                  <ArrowRight size={20} className="text-gray-300 group-hover:text-pink-500 group-hover:translate-x-1 transition-all" />
-                </button>
-                <button 
-                  onClick={() => finalizeImport('overwrite')}
-                  className="w-full p-4 bg-red-50 border border-red-100 rounded-2xl text-left hover:border-red-300 transition-all flex items-center justify-between group"
-                >
-                  <div>
-                    <h3 className="font-bold text-red-800">Overwrite everything</h3>
-                    <p className="text-xs text-red-600/70 mt-1">Delete current data and replace with backup contents.</p>
-                  </div>
-                  <X size={20} className="text-red-300 group-hover:text-red-500 transition-all" />
-                </button>
-              </div>
-
-              <button 
-                onClick={() => { setShowImportModal(false); setImportData(null); }}
-                className="w-full py-3 text-sm font-bold text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                Cancel Import
+      {/* New Prompt Modal */}
+      {isAdding && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-[#2d2d2d] w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-[#333]">
+              <h3 className="font-semibold text-sm">Create New Prompt</h3>
+              <button onClick={() => setIsAdding(false)} className="p-1 hover:bg-gray-200 dark:hover:bg-[#444] rounded">
+                <X size={18} />
               </button>
             </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Title</label>
+                  <input autoFocus type="text" placeholder="Prompt Title" className="w-full bg-gray-100 dark:bg-[#1e1e1e] border-none rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500" value={newPrompt.title} onChange={(e) => setNewPrompt(p => ({ ...p, title: e.target.value }))} />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Target Folder</label>
+                  <select className="w-full bg-gray-100 dark:bg-[#1e1e1e] border-none rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500" value={newPrompt.categoryId} onChange={(e) => setNewPrompt(p => ({ ...p, categoryId: e.target.value }))}>
+                    {categories.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Content</label>
+                <textarea rows={6} placeholder="Enter prompt text here..." className="w-full bg-gray-100 dark:bg-[#1e1e1e] border-none rounded-lg p-3 outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm leading-relaxed" value={newPrompt.content} onChange={(e) => setNewPrompt(p => ({ ...p, content: e.target.value }))} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1.5 tracking-wider">Image Reference (Optional)</label>
+                <div className="flex items-center gap-4 mt-2">
+                  {newPrompt.image && (
+                    <div className="relative group">
+                      <img src={newPrompt.image} className="w-16 h-16 rounded-lg object-cover border dark:border-gray-700" alt="" />
+                      <button onClick={() => setNewPrompt(p => ({ ...p, image: '' }))} className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                        <X size={10} />
+                      </button>
+                    </div>
+                  )}
+                  <label className="flex-1 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-4 hover:bg-gray-50 dark:hover:bg-[#333] cursor-pointer flex items-center justify-center gap-2 transition-all">
+                    <ImageIcon size={18} className="text-gray-400" />
+                    <span className="text-xs text-gray-500">Upload Image</span>
+                    <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 bg-gray-50 dark:bg-[#333] flex justify-end gap-3">
+              <button onClick={() => setIsAdding(false)} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 font-medium">Cancel</button>
+              <button onClick={handleAddPrompt} disabled={!newPrompt.title || !newPrompt.content} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg text-sm font-semibold disabled:opacity-50 shadow-md">Save Prompt</button>
+            </div>
           </div>
-        )}
-      </main>
+        </div>
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
+          <div className="bg-white dark:bg-[#2d2d2d] w-full max-w-md rounded-2xl shadow-2xl overflow-hidden p-8 text-center">
+            <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle size={32} className="text-blue-600 dark:text-blue-400" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">Import Data</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Import found {importData?.prompts.length} prompts. Choose a mode:</p>
+            <div className="grid grid-cols-1 gap-3">
+              <button onClick={() => finalizeImport('merge')} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-xl font-semibold shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"><Layers size={18} /> Merge with Existing</button>
+              <button onClick={() => finalizeImport('overwrite')} className="w-full bg-red-600 hover:bg-red-700 text-white p-3 rounded-xl font-semibold shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"><RefreshCcw size={18} /> Overwrite Current</button>
+              <button onClick={() => { setShowImportModal(false); setImportData(null); }} className="w-full p-3 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
