@@ -1,9 +1,10 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 export const generatePythonScript = async (categories: any[], prompts: any[]) => {
+  // Fix: Create a new GoogleGenAI instance right before making an API call 
+  // to ensure it always uses the most up-to-date API key.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
   const prompt = `
     Act as a world-class Python and macOS Developer. 
     Generate a professional-grade, standalone macOS desktop application using PyQt6 and Pillow.
