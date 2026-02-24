@@ -3,23 +3,38 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-export const generatePythonScript = async (categories: string[], samplePrompts: any[]) => {
+export const generatePythonScript = async (categories: any[], prompts: any[]) => {
   const prompt = `
-    Act as an expert Python Developer. 
-    Generate a complete, standalone macOS desktop application using PyQt6 and Pillow.
+    Act as a world-class Python and macOS Developer. 
+    Generate a professional-grade, standalone macOS desktop application using PyQt6 and Pillow.
     
-    The app is a "Prompt Manager" with:
-    - Sidebar categories: ${categories.join(', ')}.
-    - A searchable list of prompts.
-    - Fields: Title, Multi-line Text (Plain Text), Copy to Clipboard button.
-    - Image handling: Drag & drop or file selection, automatic resize to max 400px width using Pillow.
-    - Persistence: SQLite database (prompts.db).
-    - Modern macOS dark mode aesthetic.
+    The app MUST look like a native macOS Sonoma/Ventura app with:
+    - A modern QSS (Qt Style Sheet) that implements:
+        - Dark background (#1e1e1e)
+        - Rounded corners (12px)
+        - SF Pro style typography (use 'Sans Serif' fallback)
+        - Subtle pink highlights for folders containing sub-folders.
+        - Hover states and smooth transitions.
     
-    Sample prompt data for context: ${JSON.stringify(samplePrompts.slice(0, 2))}
+    Technical Requirements:
+    - Sidebar: Nested folders support. 
+    - Prompts List: Modern card-based UI.
+    - Image Handling: Resize images to max 400px width using Pillow. Store images as base64 in the SQLite database to keep it a single file portability.
+    - Database: Use SQLite (prompts.db). Create it on startup if not exists.
+    - Trash: Fully functional trash and restore system.
+    - Native Menu: Use the macOS global menu bar for 'About', 'Preferences', and 'Quit'.
     
-    Include specific instructions for installation: pip install PyQt6 Pillow
-    The response must contain ONLY the code and installation instructions in a markdown code block.
+    INITIAL DATA:
+    Please initialize the SQLite database with the following data:
+    CATEGORIES: ${JSON.stringify(categories)}
+    PROMPTS: ${JSON.stringify(prompts)}
+    
+    OUTPUT:
+    Return ONLY the complete Python source code.
+    Include a header comment with exactly these steps:
+    1. pip install PyQt6 Pillow
+    2. python3 prompt_manager.py
+    3. (Optional) pip install py2app && python3 setup.py py2app
   `;
 
   try {
@@ -27,7 +42,7 @@ export const generatePythonScript = async (categories: string[], samplePrompts: 
       model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
-        thinkingConfig: { thinkingBudget: 2000 }
+        thinkingConfig: { thinkingBudget: 4000 }
       }
     });
 
